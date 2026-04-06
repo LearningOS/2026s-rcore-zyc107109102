@@ -4,7 +4,7 @@
 //! executing from `entry.asm`, after which [`rust_main()`] is called to
 //! initialize various pieces of functionality [`clear_bss()`]. (See its source code for
 //! details.)
-//!
+//!d
 //! We then call [`println!`] to display `Hello, world!`.
 
 #![deny(missing_docs)]
