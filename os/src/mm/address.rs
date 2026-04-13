@@ -155,7 +155,7 @@ impl From<PhysPageNum> for PhysAddr {
     }
 }
 
-impl VirtPageNum {
+impl VirtPageNum {//拿vpn[0,1,2]
     /// Get the indexes of the page table entry
     pub fn indexes(&self) -> [usize; 3] {
         let mut vpn = self.0;
