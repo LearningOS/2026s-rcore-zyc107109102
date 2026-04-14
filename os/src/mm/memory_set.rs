@@ -8,6 +8,7 @@ use crate::config::{
     KERNEL_STACK_SIZE, MEMORY_END, PAGE_SIZE, TRAMPOLINE, TRAP_CONTEXT_BASE, USER_STACK_SIZE,
 };
 use crate::sync::UPSafeCell;
+//use crate::task::current_user_token;
 use alloc::collections::BTreeMap;
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -69,6 +70,16 @@ impl MemorySet {
             map_area.copy_data(&mut self.page_table, data);
         }
         self.areas.push(map_area);
+    }
+    ///remove
+    fn remove_framed_area(&mut self, idx: usize , start_va:VirtPageNum , end_va:VirtPageNum) -> isize {
+        let area = &mut self.areas[idx];
+        if area.vpn_range.get_start() == start_va && area.vpn_range.get_end() == end_va {
+            area.unmap(&mut self.page_table);
+            self.areas.remove(idx);
+            return 0;
+        }
+        -1
     }
     /// Mention that trampoline is not collected by areas.
     fn map_trampoline(&mut self) {
@@ -261,6 +272,70 @@ impl MemorySet {
         } else {
             false
         }
+    }
+    ///
+    pub fn mmap(&mut self, start: usize, len: usize, port: usize) -> isize {
+        if start % PAGE_SIZE != 0 {
+            return -1;
+        }
+        if port & !0x7 != 0 {
+            return -1;
+        }
+        if port & 0x7 == 0 {
+            return -1;
+        }
+        let start_va = VirtAddr(start).floor();
+        let end_va = VirtAddr(start + len).ceil();
+        // let mut inner = KERNEL_SPACE.exclusive_access();
+        // for vpn in VPNRange::new(start_va.floor(), end_va.ceil()) {
+        //     if let Some(pte) = inner.translate(vpn) {
+        //         if pte.is_valid() {
+        //             return -5;
+        //         }
+        //     }
+        // }
+        for area in self.areas.iter() {
+            if area.vpn_range.get_start() < end_va && area.vpn_range.get_end() > start_va {
+                return -1;
+            }
+        }
+        let mut permission = MapPermission::U;
+        if port & 0b1 != 0 {
+            permission |= MapPermission::R;
+        }
+        if port & 0b10 != 0 {
+            permission |= MapPermission::W;
+        }
+        if port & 0b100 != 0 {
+            permission |= MapPermission::X;
+        }
+        //inner.insert_framed_area(start_va, end_va, permission);
+        self.insert_framed_area(start_va.into(), end_va.into(), permission);
+        0
+    }
+    ///
+    pub fn munmap(&mut self, start: usize, len: usize) -> isize {
+        if start % PAGE_SIZE != 0 {
+            return -1;
+        }
+        let start_va = VirtAddr(start).floor();
+        let end_va = VirtAddr(start + len).ceil();
+        //let mut inner = KERNEL_SPACE.exclusive_access();
+        // for vpn in VPNRange::new(start_va.floor(), end_va.ceil()) {
+        //     if let Some(pte) = inner.translate(vpn) {
+        //         if !pte.is_valid() {
+        //             return -1;
+        //         }
+        //     }
+        // }
+        //let mut found = None;
+        for (idx, area) in self.areas.iter().enumerate() {
+            if area.vpn_range.get_start() <= start_va && area.vpn_range.get_end() >= end_va {
+                //found = Some(idx);
+                return self.remove_framed_area(idx , start_va , end_va);
+            }
+        }
+        -1
     }
 }
 /// map area structure, controls a contiguous piece of virtual memory

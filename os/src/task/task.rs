@@ -1,10 +1,11 @@
 //! Types related to task management
 use super::TaskContext;
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{TRAP_CONTEXT_BASE,MAX_SYSCALL_NUM};
 use crate::mm::{
     kernel_stack_position, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE,
 };
 use crate::trap::{trap_handler, TrapContext};
+use alloc::{vec , vec::Vec};
 
 /// The task control block (TCB) of a task.
 pub struct TaskControlBlock {
@@ -28,6 +29,9 @@ pub struct TaskControlBlock {
 
     /// Program break
     pub program_brk: usize,
+
+    ///计数
+    pub syscall_counts: Vec<usize>,
 }
 
 impl TaskControlBlock {
@@ -63,6 +67,7 @@ impl TaskControlBlock {
             base_size: user_sp,
             heap_bottom: user_sp,
             program_brk: user_sp,
+            syscall_counts: vec![0; MAX_SYSCALL_NUM],
         };
         // prepare TrapContext in user space
         let trap_cx = task_control_block.get_trap_cx();
@@ -95,6 +100,28 @@ impl TaskControlBlock {
         } else {
             None
         }
+    }
+    ///add
+    pub fn add_syscall_count(&mut self, syscall_id: usize) {
+        if syscall_id >= self.syscall_counts.len() {
+            return ;
+        }
+        self.syscall_counts[syscall_id] += 1;
+    }
+    ///get
+    pub fn get_syscall_count(&self, syscall_id: usize) -> usize{
+        if syscall_id >= self.syscall_counts.len() {
+            return 0;
+        }
+        self.syscall_counts[syscall_id]
+    }
+    ///mmap
+    pub fn mmap(&mut self, start: usize, len: usize, port: usize) -> isize{
+        self.memory_set.mmap(start, len, port)
+    }
+    ///munmap
+    pub fn munmap(&mut self, start: usize, len: usize) -> isize{
+        self.memory_set.munmap(start, len)
     }
 }
 
