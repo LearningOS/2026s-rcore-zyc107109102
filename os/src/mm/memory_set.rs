@@ -300,6 +300,63 @@ impl MemorySet {
             false
         }
     }
+    ///mmap
+    pub fn mmap(&mut self, start: usize, len: usize, port: usize) -> isize {
+        if start % PAGE_SIZE != 0 { return -1;}
+        if port & !0x7 != 0 { return -1;}
+        if port & 0x7 == 0 { return -1;}
+        let start_va = VirtAddr(start).floor();
+        let end_va = VirtAddr(start + len).ceil();
+        for vpn in VPNRange::new(start_va, end_va) {
+            match self.page_table.translate(vpn) {
+                Some(pte) => {
+                    if pte.is_valid() {
+                        return -1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut permission = MapPermission::U;
+        if port & 0b1 != 0 { permission |= MapPermission::R; }
+        if port & 0b10 != 0 { permission |= MapPermission::W;}
+        if port & 0b100 != 0 { permission |= MapPermission::X;}
+        self.push(
+            MapArea::new(
+                start_va.into(),
+                end_va.into(),
+                MapType::Framed,
+                permission,
+            ),
+            None,
+        );
+        0
+    }
+    ///munmap
+    pub fn munmap(&mut self, start: usize, len: usize) -> isize {
+        if start % PAGE_SIZE != 0 {
+            return -1;
+        }
+        let start_va = VirtAddr(start).floor();
+        let end_va = VirtAddr(start + len).ceil();
+        for vpn in VPNRange::new(start_va, end_va) {
+            match self.page_table.translate(vpn) {
+                Some(pte) => {
+                    if !pte.is_valid() {
+                        return -1;
+                    }
+                }
+                _ => return -1,
+            }
+        }
+        for area in self.areas.iter_mut() {
+            if area.vpn_range.get_start() == start_va {
+                area.unmap(&mut self.page_table);
+                break;
+            }
+        }
+        0
+    }
 }
 /// map area structure, controls a contiguous piece of virtual memory
 pub struct MapArea {
