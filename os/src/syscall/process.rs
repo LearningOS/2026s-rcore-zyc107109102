@@ -1,14 +1,15 @@
 //! Process management syscalls
 //!
+use core::mem;
+
 use alloc::sync::Arc;
 
 use crate::{
-    fs::{open_file, OpenFlags},
-    mm::{translated_refmut, translated_str},
+    fs::{OpenFlags, open_file},
+    mm::{translated_byte_buffer, translated_refmut, translated_str},
     task::{
-        add_task, current_task, current_user_token, exit_current_and_run_next,
-        suspend_current_and_run_next,
-    },
+        TaskControlBlock, add_task, current_task, current_user_token, exit_current_and_run_next, suspend_current_and_run_next
+    }, timer::get_time_us,
 };
 
 #[repr(C)]
@@ -105,30 +106,49 @@ pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
 /// YOUR JOB: get time with second and microsecond
 /// HINT: You might reimplement it with virtual memory management.
 /// HINT: What if [`TimeVal`] is splitted by two pages ?
-pub fn sys_get_time(_ts: *mut TimeVal, _tz: usize) -> isize {
+pub fn sys_get_time(ts: *mut TimeVal, _tz: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_get_time NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_get_time",
         current_task().unwrap().pid.0
     );
-    -1
+    let us = get_time_us();
+    let sec = us / 1_000_000;
+    let usec = us % 1_000_000;
+    let time_val = TimeVal { sec, usec };
+    let token = current_user_token();
+    let len = mem::size_of::<TimeVal>();
+    let src = &time_val as *const TimeVal as *const u8;
+    let src_slice = unsafe { core::slice::from_raw_parts(src, len) };
+    let mut written = 0usize;
+    let buffers = translated_byte_buffer(token, ts as *const u8, len);
+    for buffer in buffers {
+        let n = buffer.len();
+        buffer.copy_from_slice(&src_slice[written..written + n]);
+        written += n;
+    }
+    0
 }
 
 /// YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_mmap NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_mmap",
         current_task().unwrap().pid.0
     );
-    -1
+    let current = current_task().unwrap();
+    let mut inner = current.inner_exclusive_access();
+    inner.memory_set.mmap(start , len , port)
 }
 
 /// YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
+pub fn sys_munmap(start: usize, len: usize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_munmap NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_munmap",
         current_task().unwrap().pid.0
     );
-    -1
+    let current = current_task().unwrap();
+    let mut inner = current.inner_exclusive_access();
+    inner.memory_set.munmap(start , len)
 }
 
 /// change data segment size
@@ -143,19 +163,37 @@ pub fn sys_sbrk(size: i32) -> isize {
 
 /// YOUR JOB: Implement spawn.
 /// HINT: fork + exec =/= spawn
-pub fn sys_spawn(_path: *const u8) -> isize {
+pub fn sys_spawn(path: *const u8) -> isize {
     trace!(
-        "kernel:pid[{}] sys_spawn NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_spawn",
         current_task().unwrap().pid.0
     );
-    -1
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    let Some(app_inode) = open_file(path.as_str(), OpenFlags::RDONLY) else {
+        return -1;
+    };
+    let data = app_inode.read_all();
+    let task = Arc::new(TaskControlBlock::new(data.as_slice()));
+    let current = current_task().unwrap();
+    task.inner_exclusive_access().parent = Some(Arc::downgrade(&current));
+    let mut inner = current.inner_exclusive_access();
+    inner.children.push(task.clone());
+    add_task(task.clone());
+    task.pid.0 as isize
 }
 
 // YOUR JOB: Set task priority.
-pub fn sys_set_priority(_prio: isize) -> isize {
+pub fn sys_set_priority(prio: isize) -> isize {
     trace!(
-        "kernel:pid[{}] sys_set_priority NOT IMPLEMENTED",
+        "kernel:pid[{}] sys_set_priority",
         current_task().unwrap().pid.0
     );
-    -1
+    if prio < 2 {
+        return -1;
+    }
+    let current = current_task().unwrap();
+    let mut inner = current.inner_exclusive_access();
+    inner.prio = prio;
+    prio
 }
