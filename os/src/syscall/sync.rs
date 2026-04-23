@@ -2,7 +2,7 @@ use crate::sync::{Condvar, Mutex, MutexBlocking, MutexSpin, Semaphore};
 use crate::task::{block_current_and_run_next, current_process, current_task};
 use crate::timer::{add_timer, get_time_ms};
 use alloc::sync::Arc;
-/// sleep syscall
+/// sleep syscall//
 pub fn sys_sleep(ms: usize) -> isize {
     trace!(
         "kernel:pid[{}] tid[{}] sys_sleep",
